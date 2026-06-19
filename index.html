@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="theme-color" content="#0b0d14" />
-<title>PaintDrift · Mal-IO</title>
+<meta name="theme-color" content="#06070c" />
+<title>PaintDrift</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -13,48 +13,59 @@
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div class="hud-top">
-      <div class="pill" id="dropsPill" title="Farbtropfen">💧 <span id="drops">0</span></div>
-      <div class="pill" id="levelPill" title="Level">⭐ <span id="level">1</span></div>
-      <div class="pill combo hidden" id="comboPill">🔥 <span id="comboVal">x2</span></div>
-      <div class="pill" id="paintedPill" title="bemalte Fläche">🖼️ <span id="painted">0%</span></div>
+      <div class="pill" id="dropsPill" title="Tropfen"><i id="icoDrops" class="ico"></i><span id="drops">0</span></div>
+      <div class="pill" id="levelPill" title="Level"><i id="icoLevel" class="ico"></i><span id="level">1</span></div>
+      <div class="pill combo hidden" id="comboPill"><i id="icoCombo" class="ico"></i><span id="comboVal">x2</span></div>
+      <div class="pill" id="paintedPill" title="bemalte Fläche"><i id="icoPainted" class="ico"></i><span id="painted">0%</span></div>
     </div>
 
     <div class="hud-right">
-      <button class="iconbtn" id="btnShop" title="Werkstatt">🛠️</button>
-      <button class="iconbtn" id="btnPalette" title="Farbwähler">🎨</button>
-      <button class="iconbtn" id="btnShot" title="Gemälde teilen / speichern">📸</button>
-      <button class="iconbtn" id="btnMute" title="Ton an/aus">🔊</button>
-      <button class="iconbtn" id="btnHelp" title="Hilfe">❓</button>
+      <button class="iconbtn" id="btnShop" title="Werkstatt"></button>
+      <button class="iconbtn" id="btnPalette" title="Farben"></button>
+      <button class="iconbtn" id="btnShot" title="Gemälde teilen"></button>
+      <button class="iconbtn" id="btnMute" title="Ton"></button>
+      <button class="iconbtn" id="btnHelp" title="Hilfe"></button>
     </div>
 
-    <div class="ink-wrap" title="Farbe / Tinte">
+    <div class="ink-wrap" title="Tinte">
       <div class="ink-bar"><div class="ink-fill" id="inkFill"></div></div>
       <div class="ink-label">TINTE</div>
     </div>
 
     <div class="zoomctl">
-      <button class="iconbtn small" id="btnZoomIn">＋</button>
-      <button class="iconbtn small" id="btnZoomOut">－</button>
+      <button class="iconbtn small" id="btnZoomIn"></button>
+      <button class="iconbtn small" id="btnZoomOut"></button>
     </div>
 
     <div id="toast" class="toast hidden"></div>
     <div id="comboPop" class="combo-pop hidden"></div>
   </div>
 
-  <!-- Start / Onboarding -->
+  <!-- Start -->
   <div id="startScreen" class="overlay">
     <div class="panel start">
+      <svg class="brandmark" viewBox="0 0 120 60" aria-hidden="true">
+        <defs>
+          <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#7c5cff"/>
+          </linearGradient>
+        </defs>
+        <path d="M8 44 C 28 8, 60 8, 70 30 C 76 44, 96 44, 110 18"
+              fill="none" stroke="url(#bg1)" stroke-width="7" stroke-linecap="round"/>
+        <circle cx="110" cy="18" r="7" fill="#fff"/>
+        <circle cx="110" cy="18" r="11" fill="none" stroke="#7c5cff" stroke-width="2" opacity=".6"/>
+      </svg>
       <h1 class="logo">Paint<span>Drift</span></h1>
-      <p class="tag">Fahr. Umkreise. Male ein riesiges Kunstwerk.</p>
+      <p class="tag">Fahre, umkreise Flächen, male ein endloses Kunstwerk.</p>
       <ul class="how">
-        <li>🖱️ <b>Maus / Finger</b>: lenke deine Figur in die Richtung des Zeigers</li>
-        <li>✏️ Verlässt du dein Gebiet, ziehst du eine <b>Spur</b></li>
-        <li>🔁 Schließt du eine <b>Schleife</b>, wird die Fläche bemalt &amp; fixiert</li>
-        <li>🔍 <b>Mausrad / Pinch</b>: rein- &amp; rauszoomen</li>
-        <li>⚠️ Triff <b>nicht deine eigene Spur</b> &amp; pass auf die Tinte auf!</li>
+        <li><b>Maus / Finger</b> — lenke deine Figur in Richtung des Zeigers</li>
+        <li>Verlässt du dein Gebiet, ziehst du eine <b>Spur</b></li>
+        <li>Schließt du eine <b>Schleife</b>, wird die Fläche gefüllt</li>
+        <li><b>Mausrad / Pinch</b> — rein- und rauszoomen</li>
+        <li>Triff nicht deine eigene Spur und behalte die Tinte im Blick</li>
       </ul>
-      <button class="bigbtn" id="btnStart">Los geht's ▶</button>
-      <p class="mini">Tipp: Große Schleifen = mehr Tropfen = Combos = Upgrades 🚀</p>
+      <button class="bigbtn" id="btnStart">Spielen</button>
+      <p class="mini">Große Schleifen geben mehr Tropfen, Combos und Upgrades.</p>
     </div>
   </div>
 
@@ -62,15 +73,15 @@
   <div id="shopScreen" class="overlay hidden">
     <div class="panel shop">
       <div class="panel-head">
-        <h2>🛠️ Werkstatt</h2>
-        <div class="balance">💧 <span id="shopDrops">0</span></div>
-        <button class="closex" data-close>✕</button>
+        <h2>Werkstatt</h2>
+        <div class="balance"><i id="icoBal" class="ico"></i><span id="shopDrops">0</span></div>
+        <button class="closex" data-close></button>
       </div>
       <div class="tabs">
         <button class="tab active" data-tab="brushes">Pinsel</button>
-        <button class="tab" data-tab="patterns">Muster</button>
+        <button class="tab" data-tab="patterns">Effekte</button>
         <button class="tab" data-tab="upgrades">Upgrades</button>
-        <button class="tab" data-tab="skins">Skins</button>
+        <button class="tab" data-tab="skins">Figuren</button>
       </div>
       <div class="tab-body" id="shopBody"></div>
     </div>
@@ -80,15 +91,15 @@
   <div id="paletteScreen" class="overlay hidden">
     <div class="panel palette">
       <div class="panel-head">
-        <h2>🎨 Farbwähler</h2>
-        <button class="closex" data-close>✕</button>
+        <h2>Farben</h2>
+        <button class="closex" data-close></button>
       </div>
       <div class="picker">
         <canvas id="svCanvas" width="220" height="160"></canvas>
         <div class="sliders">
           <label>Farbton</label>
           <input type="range" id="hueRange" min="0" max="360" value="280" class="hue" />
-          <label>Deckkraft <span id="opacityLock" class="lock">🔒</span></label>
+          <label>Deckkraft <span id="opacityLock" class="lock"></span></label>
           <input type="range" id="opacityRange" min="10" max="100" value="100" disabled />
         </div>
       </div>
@@ -96,7 +107,7 @@
         <div class="swatch big" id="curSwatch"></div>
         <div class="cur-info">
           <div id="curHex">#ffffff</div>
-          <button class="minibtn" id="btnSaveSwatch">+ merken</button>
+          <button class="minibtn" id="btnSaveSwatch">Merken</button>
         </div>
       </div>
       <div class="saved" id="savedSwatches"></div>
@@ -110,16 +121,15 @@
   <!-- Help -->
   <div id="helpScreen" class="overlay hidden">
     <div class="panel help">
-      <div class="panel-head"><h2>❓ Hilfe</h2><button class="closex" data-close>✕</button></div>
+      <div class="panel-head"><h2>Hilfe</h2><button class="closex" data-close></button></div>
       <div class="help-body">
-        <p><b>Ziel:</b> Bemale das riesige Canvas und erschaffe dein Meisterwerk.</p>
-        <p><b>Steuern:</b> Bewege Maus/Finger – die Figur fährt dorthin. Pfeiltasten/WASD gehen auch.</p>
-        <p><b>Fläche fangen:</b> Fahre aus deinem Gebiet, ziehe eine Schleife und komme zurück. Alles Eingeschlossene wird mit deinem Pinsel gefüllt.</p>
-        <p><b>Tinte:</b> Verbraucht sich beim Zeichnen, lädt auf deinem eigenen Gebiet schnell wieder auf.</p>
-        <p><b>Tropfen 💧:</b> Verdiene sie durch gefangene Flächen, Combos &amp; Sterne. Gib sie in der Werkstatt aus.</p>
-        <p><b>Combos 🔥:</b> Fange schnell hintereinander Flächen für Multiplikatoren.</p>
-        <p><b>Sterne ✨:</b> Sammle sie auf der Karte für Bonus-Tropfen.</p>
-        <p><b>Teilen:</b> 📸 exportiert dein Gemälde als Bild.</p>
+        <p><b>Ziel</b> — Bemale die endlose Leinwand und erschaffe dein Meisterwerk.</p>
+        <p><b>Steuern</b> — Maus/Finger lenkt die Figur. Pfeiltasten und WASD gehen auch.</p>
+        <p><b>Fläche fangen</b> — Fahre aus deinem Gebiet, ziehe eine Schleife und komme zurück. Alles Eingeschlossene wird mit deinem Pinsel gefüllt.</p>
+        <p><b>Tinte</b> — Verbraucht sich beim Zeichnen, lädt auf eigenem Gebiet schnell wieder auf.</p>
+        <p><b>Tropfen</b> — Belohnung für Flächen, Combos und Sterne. Ausgeben in der Werkstatt.</p>
+        <p><b>Combos</b> — Fange schnell hintereinander für Multiplikatoren.</p>
+        <p><b>Sterne</b> — Sammle sie für Bonus-Tropfen.</p>
         <button class="bigbtn" data-close>Verstanden</button>
       </div>
     </div>
