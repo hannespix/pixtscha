@@ -39,6 +39,7 @@ const ICONS = {
   search: I('<circle cx="10.5" cy="10.5" r="6.5"/><line x1="15.5" y1="15.5" x2="21" y2="21"/>'),
   layers: I('<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>'),
   sparkle:I('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>'),
+  target: I('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4"/><line x1="12" y1="1.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.5" y2="12"/>'),
 };
 const ic = n => `<span class="ico">${ICONS[n]||''}</span>`;
 
@@ -72,10 +73,11 @@ const cam = { x: GRID/2, y: GRID/2, zoom: 24, shake: 0 };
 const player = { x: GRID/2, y: GRID/2, angle: 0, targetAngle: 0, alive: true, drawing: false };
 
 const stats = {
-  drops: 0, level: 1, paintedCount: 0,
+  drops: 0, level: 1, paintedCount: 0, captures: 0,
   speed: 7.4, turn: 5.8, inkMax: 240, ink: 240, inkRegen: 64,
 };
 const combo = { mult: 1, timer: 0 };
+let captureFlash = 0;
 
 const progress = {
   brushesOwned: { solid: true },
@@ -84,6 +86,7 @@ const progress = {
   skinsOwned: { aqua: true },
   skin: 'aqua',
   opacityUnlocked: false,
+  quests: null,
 };
 const ui = {
   color: { h: 280, s: 0.82, v: 1.0 },
@@ -334,7 +337,9 @@ function captureArea(){
   burst((cMinX+cMaxX)/2,(cMinY+cMaxY)/2, base.join(','), Math.min(40,10+newPixels/40));
 
   buildTerritoryPath();
-  checkLevel(); checkMilestones(); resetTrail(); stats.ink=stats.inkMax; saveSoon();
+  captureFlash=1; stats.captures++;
+  questEvent('capture',1); questEvent('cells',newPixels); questEvent('big',newPixels);
+  checkLevel(); checkMilestones(); updateHint(); resetTrail(); stats.ink=stats.inkMax; saveSoon();
 }
 
 /* ============================================================
@@ -349,6 +354,50 @@ const milestonesHit=new Set();
 function checkMilestones(){
   const pct=stats.paintedCount/(GRID*GRID)*100;
   [1,5,10,25,50,75,100].forEach(m=>{ if(pct>=m && !milestonesHit.has(m)){ milestonesHit.add(m); showToast(m+'% der Leinwand bemalt'); sfx.unlock(); } });
+}
+
+/* ============================================================
+   ZIELE / QUESTS
+   ============================================================ */
+function newQuest(){
+  const r=Math.random();
+  if(r<0.30){ const t=3+Math.floor(Math.random()*4); return {kind:'capture',target:t,prog:0,reward:50+t*18,desc:'Fange '+t+' Flächen'}; }
+  if(r<0.55){ const t=3+Math.floor(Math.random()*4); return {kind:'stars',target:t,prog:0,reward:50+t*16,desc:'Sammle '+t+' Sterne'}; }
+  if(r<0.80){ const t=(3+Math.floor(Math.random()*6))*100; return {kind:'cells',target:t,prog:0,reward:Math.round(t*0.25),desc:'Bemale '+t+' Felder'}; }
+  const t=(4+Math.floor(Math.random()*6))*100; return {kind:'big',target:t,prog:0,reward:Math.round(t*0.4),desc:'Fange eine Fläche mit '+t+'+ Feldern'};
+}
+function ensureQuests(){ if(!Array.isArray(progress.quests)) progress.quests=[]; while(progress.quests.length<3) progress.quests.push(newQuest()); }
+function questEvent(kind,value){
+  let touched=false;
+  progress.quests.forEach((q,i)=>{
+    if(q.done) return;
+    if(kind==='capture'&&q.kind==='capture') q.prog++;
+    else if(kind==='stars'&&q.kind==='stars') q.prog++;
+    else if(kind==='cells'&&q.kind==='cells') q.prog+=value;
+    else if(kind==='big'&&q.kind==='big'){ if(value>=q.target) q.prog=q.target; }
+    else return;
+    touched=true;
+    if(q.prog>=q.target){ q.done=true; stats.drops+=q.reward; sfx.unlock(); showToast('Ziel geschafft  +'+q.reward+' Tropfen');
+      updateQuestBadge(true);
+      setTimeout(()=>{ progress.quests[i]=newQuest(); updateQuestBadge(false);
+        if(!el('questScreen').classList.contains('hidden')) renderQuests(); saveSoon(); }, 1300);
+    }
+  });
+  if(touched){ if(!el('questScreen').classList.contains('hidden')) renderQuests(); saveSoon(); }
+}
+function updateQuestBadge(show){ const b=el('questBadge'); if(!b) return;
+  if(show===undefined) show=progress.quests.some(q=>q.done);
+  b.classList.toggle('hidden', !show); }
+function renderQuests(){
+  const body=el('questBody'); body.innerHTML='';
+  progress.quests.forEach(q=>{
+    const pct=Math.min(100, q.prog/q.target*100);
+    const d=document.createElement('div'); d.className='quest'+(q.done?' done':'');
+    d.innerHTML=`<div class="quest-top">${q.desc}<span class="reward">${ic('drop')}${q.reward}</span></div>
+      <div class="qbar"><div style="width:${pct}%"></div></div>
+      <div class="qprog">${q.done?'Geschafft':Math.min(q.prog,q.target)+' / '+q.target}</div>`;
+    body.appendChild(d);
+  });
 }
 
 /* ============================================================
@@ -405,6 +454,7 @@ function update(dt){
   else stats.ink=Math.min(stats.inkMax, stats.ink+stats.inkRegen*0.12*dt);
 
   if(combo.timer>0){ combo.timer-=dt; if(combo.timer<=0) combo.mult=1; }
+  if(captureFlash>0) captureFlash=Math.max(0, captureFlash-dt*2.4);
 
   cam.x=lerp(cam.x,player.x,clamp(8*dt,0,1)); cam.y=lerp(cam.y,player.y,clamp(8*dt,0,1));
   if(cam.shake>0) cam.shake=Math.max(0,cam.shake-30*dt);
@@ -423,7 +473,7 @@ function update(dt){
   updateHUD();
 }
 function collectStar(st){ const bonus=Math.round(20+stats.level*6); stats.drops+=bonus; sfx.star();
-  burst(st.x,st.y,'255,226,89',16); showToast('+'+bonus+' Tropfen'); combo.timer=Math.max(combo.timer,2); checkLevel(); }
+  burst(st.x,st.y,'255,226,89',16); showToast('+'+bonus+' Tropfen'); combo.timer=Math.max(combo.timer,2); checkLevel(); questEvent('stars',1); }
 
 /* ============================================================
    RENDER
@@ -472,6 +522,7 @@ function render(){
     const sh=ctx.createLinearGradient(0,ownedBounds.minY,0,ownedBounds.maxY+0.001);
     sh.addColorStop(0,'rgba(255,255,255,.08)'); sh.addColorStop(.45,'rgba(255,255,255,0)'); sh.addColorStop(1,'rgba(0,0,0,.12)');
     ctx.fillStyle=sh; ctx.fill(terrPath,'evenodd');
+    if(captureFlash>0){ ctx.fillStyle='rgba(255,255,255,'+(captureFlash*0.4)+')'; ctx.fill(terrPath,'evenodd'); }
     ctx.restore();
     ctx.lineJoin='round'; ctx.lineWidth=Math.max(0.03, 1.5/cam.zoom);
     ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.stroke(terrPath);
@@ -629,6 +680,8 @@ function updateHUD(){
   if(combo.mult>1 && combo.timer>0){ cp.classList.remove('hidden'); el('comboVal').textContent='x'+combo.mult; }
   else cp.classList.add('hidden');
 }
+function updateHint(){ const h=el('hint'); if(!h) return;
+  if(started && stats.captures===0) h.classList.remove('hidden'); else h.classList.add('hidden'); }
 let toastT=null;
 function showToast(msg){ const t=el('toast'); t.textContent=msg; t.classList.remove('hidden');
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.add('hidden'),1600); }
@@ -638,6 +691,7 @@ function showCombo(msg){ const c=el('comboPop'); c.textContent=msg; c.classList.
 
 /* ---------- statische Icons setzen ---------- */
 function setStaticIcons(){
+  el('btnQuests').innerHTML=ICONS.target+'<span class="badge hidden" id="questBadge"></span>';
   el('btnShop').innerHTML=ICONS.tools; el('btnPalette').innerHTML=ICONS.palette;
   el('btnShot').innerHTML=ICONS.share; el('btnMute').innerHTML=muted?ICONS.mute:ICONS.sound;
   el('btnHelp').innerHTML=ICONS.help; el('btnZoomIn').innerHTML=ICONS.plus; el('btnZoomOut').innerHTML=ICONS.minus;
@@ -654,6 +708,7 @@ const openOverlay = id => el(id).classList.remove('hidden');
 const closeOverlay = id => el(id).classList.add('hidden');
 document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click', e=>{ sfx.click(); e.target.closest('.overlay').classList.add('hidden'); }));
 el('btnStart').addEventListener('click', ()=>{ sfx.click(); startGame(); });
+el('btnQuests').addEventListener('click', ()=>{ sfx.click(); ensureQuests(); renderQuests(); openOverlay('questScreen'); });
 el('btnShop').addEventListener('click', ()=>{ sfx.click(); renderShop('brushes'); openOverlay('shopScreen'); });
 el('btnPalette').addEventListener('click', ()=>{ sfx.click(); renderPalette(); openOverlay('paletteScreen'); });
 el('btnHelp').addEventListener('click', ()=>{ sfx.click(); openOverlay('helpScreen'); });
@@ -815,12 +870,12 @@ function loadGame(){
    ============================================================ */
 function startGame(){ closeOverlay('startScreen'); el('hud').classList.remove('hidden');
   if(!loaded){ seedTerritory(GRID/2|0, GRID/2|0, 6); wctx.putImageData(worldImg,0,0); }
-  buildTerritoryPath();
-  started=true; player.targetAngle=0; player.angle=0; saveGame();
+  buildTerritoryPath(); ensureQuests();
+  started=true; player.targetAngle=0; player.angle=0; updateHint(); saveGame();
 }
 
 let loaded=false;
-setStaticIcons(); applyUpgrades(); loaded=loadGame(); updateHUD();
+setStaticIcons(); applyUpgrades(); loaded=loadGame(); ensureQuests(); updateQuestBadge(false); updateHUD();
 requestAnimationFrame(loop);
 window.addEventListener('beforeunload', saveGame);
 setInterval(()=>{ if(started) saveGame(); }, 15000);
