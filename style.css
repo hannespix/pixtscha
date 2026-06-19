@@ -154,6 +154,16 @@ input[type=range].hue::-webkit-slider-thumb{-webkit-appearance:none;width:18px;h
 .brush-chip.locked{opacity:.4;cursor:not-allowed}
 .bdot{width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.35)}
 
+/* Buffs / Power-ups */
+.buffs{position:absolute;top:max(64px,calc(env(safe-area-inset-top) + 50px));left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;pointer-events:none}
+.buffchip{display:flex;align-items:center;gap:6px;background:var(--pill);border:1px solid var(--border);
+  border-radius:999px;padding:5px 11px 5px 9px;font-weight:800;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.3);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.buffchip .ico svg{width:15px;height:15px}
+.buffchip .bt{width:30px;height:5px;border-radius:999px;background:rgba(255,255,255,.18);overflow:hidden}
+.buffchip .bt>div{height:100%;border-radius:999px}
+
 /* Quests */
 .iconbtn{position:relative}
 .badge{position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;
