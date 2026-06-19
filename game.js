@@ -227,7 +227,15 @@ function burst(wx, wy, color, n=14){
   for(let i=0;i<n;i++){
     const a=rand(0,Math.PI*2), sp=rand(1,6);
     particles.push({ x:wx, y:wy, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp, life:rand(.4,.9), max:.9,
-      color, size:rand(1.5,4) });
+      color, size:rand(1.5,4), g:0 });
+  }
+}
+// Farbtropfen-Spritzer mit Schwerkraft (malerisches Feedback)
+function splat(wx, wy, color, n=12){
+  for(let i=0;i<n;i++){
+    const a=rand(0,Math.PI*2), sp=rand(2,9), life=rand(.6,1.2);
+    particles.push({ x:wx, y:wy, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-rand(1,4), life, max:life,
+      color, size:rand(2,6), g:rand(14,22) });
   }
 }
 
@@ -396,6 +404,7 @@ function captureArea(){
   cam.shake=Math.min(16, 4+newPixels/120);
   const ccx2=(cMinX+cMaxX)/2, ccy2=(cMinY+cMaxY)/2;
   burst(ccx2,ccy2, base.join(','), Math.min(40,10+newPixels/40));
+  splat(ccx2,ccy2, base.join(','), Math.min(26, 8+newPixels/60));
   ring(ccx2,ccy2, base.join(','), Math.min(14, 4+newPixels/200));
 
   buildTerritoryPath();
@@ -554,7 +563,8 @@ function update(dt){
   if(buffs.double>0) buffs.double=Math.max(0,buffs.double-dt);
 
   for(let p=particles.length-1;p>=0;p--){ const q=particles[p];
-    q.x+=q.vx*dt*8; q.y+=q.vy*dt*8; q.vx*=0.92; q.vy*=0.92; q.life-=dt; if(q.life<=0) particles.splice(p,1); }
+    if(q.g) q.vy+=q.g*dt;
+    q.x+=q.vx*dt*8; q.y+=q.vy*dt*8; q.vx*=0.92; q.vy*=q.g?0.99:0.92; q.life-=dt; if(q.life<=0) particles.splice(p,1); }
   for(let r=rings.length-1;r>=0;r--){ rings[r].t+=dt; if(rings[r].t>=rings[r].dur) rings.splice(r,1); }
 
   updateHUD();
@@ -565,12 +575,28 @@ function collectStar(st){ const bonus=Math.round(20+stats.level*6); stats.drops+
 /* ============================================================
    RENDER
    ============================================================ */
+const BG_BLOBS=[
+  { fx:0.18, fy:0.28, col:'124,92,255', r:0.55, s:0.05, p:0,   par:0.16 },
+  { fx:0.82, fy:0.22, col:'34,211,238', r:0.5,  s:0.07, p:1.7, par:0.10 },
+  { fx:0.72, fy:0.8,  col:'255,95,109', r:0.45, s:0.045,p:3.1, par:0.22 },
+  { fx:0.3,  fy:0.82, col:'52,211,153', r:0.42, s:0.06, p:4.4, par:0.14 },
+];
 function render(){
+  const time=performance.now()*0.001;
   ctx.save();
   ctx.fillStyle=VOID; ctx.fillRect(0,0,W,H);
+  // lebendiger Nebel-Hintergrund (driftend, mit leichter Parallaxe)
+  const md=Math.max(W,H);
+  for(const bl of BG_BLOBS){
+    const bx=W*bl.fx + Math.sin(time*bl.s+bl.p)*W*0.07 - cam.x*bl.par;
+    const by=H*bl.fy + Math.cos(time*bl.s*0.9+bl.p)*H*0.07 - cam.y*bl.par;
+    const rad=md*bl.r, g=ctx.createRadialGradient(bx,by,0,bx,by,rad);
+    g.addColorStop(0,'rgba('+bl.col+',0.10)'); g.addColorStop(1,'rgba('+bl.col+',0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  }
   // dezenter Lichtschein in der Mitte
-  const vg=ctx.createRadialGradient(W/2,H/2,0, W/2,H/2,Math.max(W,H)*0.7);
-  vg.addColorStop(0,'rgba(124,92,255,0.07)'); vg.addColorStop(1,'rgba(0,0,0,0)');
+  const vg=ctx.createRadialGradient(W/2,H/2,0, W/2,H/2,md*0.7);
+  vg.addColorStop(0,'rgba(124,92,255,0.05)'); vg.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
 
   let shx=0,shy=0; if(cam.shake>0){ shx=rand(-cam.shake,cam.shake); shy=rand(-cam.shake,cam.shake); }
