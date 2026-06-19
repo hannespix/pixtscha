@@ -20,12 +20,15 @@
     </div>
 
     <div class="hud-right">
+      <button class="iconbtn" id="btnQuests" title="Ziele"><span class="badge hidden" id="questBadge"></span></button>
       <button class="iconbtn" id="btnShop" title="Werkstatt"></button>
       <button class="iconbtn" id="btnPalette" title="Farben"></button>
       <button class="iconbtn" id="btnShot" title="Gemälde teilen"></button>
       <button class="iconbtn" id="btnMute" title="Ton"></button>
       <button class="iconbtn" id="btnHelp" title="Hilfe"></button>
     </div>
+
+    <div id="hint" class="hint hidden">Fahre aus deinem Gebiet, umkreise eine Fläche und komme zurück</div>
 
     <div class="ink-wrap" title="Tinte">
       <div class="ink-bar"><div class="ink-fill" id="inkFill"></div></div>
@@ -115,6 +118,15 @@
         <label>Aktiver Pinsel</label>
         <div class="brush-list" id="brushList"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Quests -->
+  <div id="questScreen" class="overlay hidden">
+    <div class="panel quests">
+      <div class="panel-head"><h2>Ziele</h2><button class="closex" data-close></button></div>
+      <p class="quest-intro">Erfülle Ziele für Bonus-Tropfen. Neue Ziele erscheinen sofort.</p>
+      <div id="questBody"></div>
     </div>
   </div>
 
