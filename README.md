@@ -56,3 +56,7 @@ Funktioniert auf **Desktop und Handy**.
 - `game.js` – komplette Spiel-Logik (Render, Capture, Shop, Speichern)
 
 Viel Spaß – und mal was Schönes! 🖌️
+
+## 🌐 Live
+
+Spiel online: https://hannespix.github.io/pixtscha/
