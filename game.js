@@ -252,6 +252,7 @@ function growBounds(x,y){
   if(x<ownedBounds.minX)ownedBounds.minX=x; if(y<ownedBounds.minY)ownedBounds.minY=y;
   if(x>ownedBounds.maxX)ownedBounds.maxX=x; if(y>ownedBounds.maxY)ownedBounds.maxY=y;
 }
+const coverage=new Uint8Array(GRID*GRID); // 1 = Zelle hat Farbe (inkl. dilatiertem Rand)
 function paintCell(x,y, rgb, alpha){
   const a=alpha, d=worldImg.data, r=rgb[0],g=rgb[1],b=rgb[2];
   for(let dy=0;dy<SS;dy++){
@@ -261,12 +262,33 @@ function paintCell(x,y, rgb, alpha){
       d[i]=r*a+d[i]*(1-a); d[i+1]=g*a+d[i+1]*(1-a); d[i+2]=b*a+d[i+2]*(1-a); d[i+3]=255;
     }
   }
+  coverage[idx(x,y)]=1;
+}
+function getCellColor(x,y){ const i=((y*SS)*WPX + x*SS)*4, d=worldImg.data; return [d[i],d[i+1],d[i+2]]; }
+// Rand der Farbfläche nach außen ziehen, damit die glatte Kontur immer auf Farbe liegt
+function dilateWorld(x0,y0,x1,y1,iters){
+  x0=clamp(x0,0,GRID-1); y0=clamp(y0,0,GRID-1); x1=clamp(x1,0,GRID-1); y1=clamp(y1,0,GRID-1);
+  for(let it=0; it<iters; it++){
+    const fills=[];
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=idx(x,y); if(coverage[i]) continue;
+      let nc=null;
+      if(x>0 && coverage[i-1]) nc=getCellColor(x-1,y);
+      else if(x<GRID-1 && coverage[i+1]) nc=getCellColor(x+1,y);
+      else if(y>0 && coverage[i-GRID]) nc=getCellColor(x,y-1);
+      else if(y<GRID-1 && coverage[i+GRID]) nc=getCellColor(x,y+1);
+      if(nc) fills.push(x,y,nc[0],nc[1],nc[2]);
+    }
+    if(!fills.length) break;
+    for(let k=0;k<fills.length;k+=5) paintCell(fills[k],fills[k+1],[fills[k+2],fills[k+3],fills[k+4]],1);
+  }
 }
 function seedTerritory(cx,cy,r){
   for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){
     if(x<0||y<0||x>=GRID||y>=GRID) continue;
     if((x-cx)**2+(y-cy)**2 <= r*r){ owned[idx(x,y)]=1; paintCell(x,y, curRGB(), 1); growBounds(x,y); }
   }
+  dilateWorld(cx-r-2,cy-r-2,cx+r+2,cy+r+2,2);
 }
 
 /* ============================================================
@@ -329,7 +351,9 @@ function captureArea(){
     const col=bfn({gx:x,gy:y,nx:(x-cMinX)/spanX,ny:(y-cMinY)/spanY,base,second});
     const v=0.92+noise2(x*0.9,y*0.9)*0.16; // dezente Pinsel-Textur, nicht tot-flach
     paintCell(x,y, [col[0]*v,col[1]*v,col[2]*v], alpha); newPixels++; }
-  wctx.putImageData(worldImg,0,0, bx0*SS,by0*SS, (bx1-bx0+1)*SS, (by1-by0+1)*SS);
+  const dB=3; dilateWorld(bx0-dB,by0-dB,bx1+dB,by1+dB,2);
+  const fx0=clamp(bx0-dB,0,GRID-1), fy0=clamp(by0-dB,0,GRID-1), fx1=clamp(bx1+dB,0,GRID-1), fy1=clamp(by1+dB,0,GRID-1);
+  wctx.putImageData(worldImg,0,0, fx0*SS,fy0*SS, (fx1-fx0+1)*SS, (fy1-fy0+1)*SS);
   stats.paintedCount += newPixels;
 
   const gain=Math.round(newPixels*(0.5+newPixels/600)*combo.mult);
@@ -413,22 +437,32 @@ function renderQuests(){
 /* ============================================================
    INPUT
    ============================================================ */
-let pointerActive=false, lastTouchDist=0;
+let lastTouchDist=0;
 const keys={};
+// Floating-Joystick: Wischen relativ zum Startpunkt der Berührung
+const joy={ active:false, touch:false, ox:0, oy:0, x:0, y:0, max:70, dead:7, mag:0 };
 function steerToScreen(sx,sy){ const [wx,wy]=screenToWorld(sx,sy); player.targetAngle=Math.atan2(wy-player.y, wx-player.x); }
-canvas.addEventListener('mousemove', e=>{ if(started) steerToScreen(e.clientX,e.clientY); });
-canvas.addEventListener('mousedown', ()=>{ pointerActive=true; audio(); });
-window.addEventListener('mouseup', ()=>{ pointerActive=false; });
+function joyStart(x,y,touch){ joy.active=true; joy.touch=touch; joy.ox=x; joy.oy=y; joy.x=x; joy.y=y; joy.mag=0; }
+function joyMove(x,y){ joy.x=x; joy.y=y; const dx=x-joy.ox, dy=y-joy.oy, d=Math.hypot(dx,dy);
+  joy.mag=Math.min(1, d/joy.max); if(d>joy.dead) player.targetAngle=Math.atan2(dy,dx); }
+function joyEnd(){ joy.active=false; joy.mag=0; }
+
+canvas.addEventListener('mousedown', e=>{ audio(); joyStart(e.clientX,e.clientY,false); });
+canvas.addEventListener('mousemove', e=>{ if(!started) return;
+  if(joy.active) joyMove(e.clientX,e.clientY); else steerToScreen(e.clientX,e.clientY); });
+window.addEventListener('mouseup', joyEnd);
 canvas.addEventListener('wheel', e=>{ e.preventDefault(); zoomAt(e.clientX,e.clientY, e.deltaY<0?1.12:1/1.12); },{passive:false});
-canvas.addEventListener('touchstart', e=>{ audio();
-  if(e.touches.length===1){ pointerActive=true; steerToScreen(e.touches[0].clientX,e.touches[0].clientY); }
-  else if(e.touches.length===2){ lastTouchDist=touchDist(e); } },{passive:false});
+
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); audio();
+  if(e.touches.length===1){ const t=e.touches[0]; joyStart(t.clientX,t.clientY,true); }
+  else if(e.touches.length===2){ joyEnd(); lastTouchDist=touchDist(e); } },{passive:false});
 canvas.addEventListener('touchmove', e=>{ e.preventDefault();
-  if(e.touches.length===1 && started){ steerToScreen(e.touches[0].clientX,e.touches[0].clientY); }
+  if(e.touches.length===1 && started){ const t=e.touches[0]; if(!joy.active) joyStart(t.clientX,t.clientY,true); joyMove(t.clientX,t.clientY); }
   else if(e.touches.length===2){ const d=touchDist(e); if(lastTouchDist>0){
     const mx=(e.touches[0].clientX+e.touches[1].clientX)/2, my=(e.touches[0].clientY+e.touches[1].clientY)/2; zoomAt(mx,my,d/lastTouchDist); }
     lastTouchDist=d; } },{passive:false});
-canvas.addEventListener('touchend', e=>{ if(e.touches.length===0) pointerActive=false; lastTouchDist=0; });
+canvas.addEventListener('touchend', e=>{ if(e.touches.length===0){ joyEnd(); lastTouchDist=0; }
+  else if(e.touches.length===1){ const t=e.touches[0]; joyStart(t.clientX,t.clientY,true); } });
 function touchDist(e){ const a=e.touches[0],b=e.touches[1]; return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); }
 function zoomAt(sx,sy,f){ const [wx,wy]=screenToWorld(sx,sy); cam.zoom=clamp(cam.zoom*f,ZMIN,ZMAX);
   const [nsx,nsy]=worldToScreen(wx,wy); cam.x+=(nsx-sx)/cam.zoom; cam.y+=(nsy-sy)/cam.zoom; }
@@ -580,6 +614,26 @@ function render(){
   ctx.restore();
 
   if(started) drawMinimap();
+  if(started && joy.active) drawJoystick();
+}
+function drawJoystick(){
+  const dx=joy.x-joy.ox, dy=joy.y-joy.oy, d=Math.hypot(dx,dy);
+  const ang=Math.atan2(dy,dx), cl=Math.min(d,joy.max);
+  const kx=joy.ox+Math.cos(ang)*cl, ky=joy.oy+Math.sin(ang)*cl;
+  ctx.save();
+  // Basis
+  ctx.beginPath(); ctx.arc(joy.ox,joy.oy,joy.max,0,7);
+  ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fill();
+  ctx.lineWidth=2; ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.stroke();
+  // Richtungslinie
+  if(d>joy.dead){ ctx.beginPath(); ctx.moveTo(joy.ox,joy.oy); ctx.lineTo(kx,ky);
+    ctx.lineWidth=3; ctx.strokeStyle='rgba(124,92,255,.5)'; ctx.stroke(); }
+  // Knopf
+  const g=ctx.createRadialGradient(kx-7,ky-7,2, kx,ky,24);
+  g.addColorStop(0,'#eaf0ff'); g.addColorStop(1,'#7c5cff');
+  ctx.beginPath(); ctx.arc(kx,ky,22,0,7); ctx.fillStyle=g;
+  ctx.shadowColor='rgba(124,92,255,.7)'; ctx.shadowBlur=16; ctx.fill();
+  ctx.restore();
 }
 function drawMinimap(){
   const m=Math.min(150, W*0.32), mx=W/2-m/2, my=H-m-16;
@@ -603,30 +657,71 @@ function sparkle(c,r){ c.beginPath();
 function roundRect(c,x,y,w,h,r){ r=Math.min(r,w/2,h/2); c.beginPath(); c.moveTo(x+r,y);
   c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
 
+const lighten=(c,t)=>mix(c,[255,255,255],t);
+const darken =(c,t)=>mix(c,[0,0,0],t);
+function ellipseArc(c,rx,ry,a0,a1){ c.beginPath(); c.ellipse(0,0,rx,ry,0,a0,a1); }
 function drawPlayer(){
   const [sx,sy]=worldToScreen(player.x,player.y);
-  const r=Math.max(9, cam.zoom*0.64);
+  const r=Math.max(10, cam.zoom*0.66);
   const skin=hexToRgb((SHOP.skins.find(s=>s.id===progress.skin)||SHOP.skins[0]).color);
   const paint=curRGB();
+  const t=performance.now()*0.001;
+  const ringA=t*1.3;                 // Ring-Präzession
+  const tilt=0.42;                    // 3D-Neigung des Rings
   ctx.save(); ctx.translate(sx,sy);
+
   // Glühender Halo
-  const g=ctx.createRadialGradient(0,0,r*0.3, 0,0,r*2.6);
-  g.addColorStop(0,rgba(skin,0.5)); g.addColorStop(1,rgba(skin,0));
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*2.6,0,7); ctx.fill();
-  ctx.rotate(player.angle);
-  // Pinsel-Spitze (zeigt aktuelle Malfarbe)
-  ctx.fillStyle=rgbToHex(...paint); ctx.shadowColor=rgba(paint,0.8); ctx.shadowBlur=r*0.6;
-  ctx.beginPath(); ctx.moveTo(r*1.7,0); ctx.lineTo(r*0.25,-r*0.85); ctx.lineTo(r*0.25,r*0.85); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur=0;
-  // Körper (Orb)
-  const bg=ctx.createRadialGradient(-r*0.35,-r*0.35,r*0.1, 0,0,r);
-  bg.addColorStop(0,rgbToHex(...mix(skin,[255,255,255],0.55))); bg.addColorStop(1,rgbToHex(...skin));
+  const g=ctx.createRadialGradient(0,0,r*0.2, 0,0,r*2.8);
+  g.addColorStop(0,rgba(skin,0.45)); g.addColorStop(1,rgba(skin,0));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*2.8,0,7); ctx.fill();
+
+  // Schub-Komet in Fahrtrichtung (hinter dem Körper)
+  ctx.save(); ctx.rotate(player.angle);
+  const tg=ctx.createLinearGradient(-r*3.4,0, r*0.2,0);
+  tg.addColorStop(0,rgba(paint,0)); tg.addColorStop(1,rgba(lighten(paint,0.2),0.85));
+  ctx.fillStyle=tg;
+  ctx.beginPath(); ctx.moveTo(-r*3.4,0); ctx.quadraticCurveTo(-r*0.6,-r*0.62, r*0.1,0);
+  ctx.quadraticCurveTo(-r*0.6,r*0.62, -r*3.4,0); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  // Orbital-Ring – hintere Hälfte (hinter dem Körper)
+  ctx.save(); ctx.rotate(ringA);
+  ctx.lineWidth=Math.max(2,r*0.16); ctx.strokeStyle=rgba(lighten(paint,0.25),0.9);
+  ctx.shadowColor=rgba(paint,0.9); ctx.shadowBlur=r*0.7;
+  ellipseArc(ctx, r*1.85, r*1.85*tilt, Math.PI, Math.PI*2); ctx.stroke();
+  ctx.restore();
+
+  // 3D-Kugel
+  const bg=ctx.createRadialGradient(-r*0.42,-r*0.46,r*0.06, r*0.1,r*0.1,r*1.15);
+  bg.addColorStop(0,'#ffffff');
+  bg.addColorStop(0.18,rgbToHex(...lighten(skin,0.55)));
+  bg.addColorStop(0.62,rgbToHex(...skin));
+  bg.addColorStop(1,rgbToHex(...darken(skin,0.5)));
   ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(0,0,r,0,7); ctx.fill();
-  // heller Ring
-  ctx.lineWidth=Math.max(1.4,r*0.13); ctx.strokeStyle='rgba(255,255,255,.9)';
-  ctx.beginPath(); ctx.arc(0,0,r*0.84,0,7); ctx.stroke();
-  // Glanzpunkt
-  ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(-r*0.32,-r*0.32,r*0.18,0,7); ctx.fill();
+  // Rim-Light (unten rechts)
+  ctx.save(); ctx.beginPath(); ctx.arc(0,0,r,0,7); ctx.clip();
+  ctx.lineWidth=r*0.2; ctx.strokeStyle=rgba(lighten(skin,0.7),0.85);
+  ctx.beginPath(); ctx.arc(r*0.16,r*0.16,r*0.94, 0.15, 1.75); ctx.stroke();
+  // innerer Energiekern
+  const core=ctx.createRadialGradient(0,0,0, 0,0,r*0.55);
+  core.addColorStop(0,rgba(lighten(paint,0.3),0.5+0.2*Math.sin(t*4))); core.addColorStop(1,rgba(paint,0));
+  ctx.fillStyle=core; ctx.beginPath(); ctx.arc(0,0,r*0.55,0,7); ctx.fill();
+  ctx.restore();
+  // Specular-Glanzpunkt
+  ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(-r*0.36,-r*0.4,r*0.17,0,7); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-r*0.12,-r*0.16,r*0.07,0,7); ctx.fill();
+
+  // Orbital-Ring – vordere Hälfte (vor dem Körper)
+  ctx.save(); ctx.rotate(ringA);
+  ctx.lineWidth=Math.max(2,r*0.16); ctx.strokeStyle=rgba(lighten(paint,0.4),0.95);
+  ctx.shadowColor=rgba(paint,0.9); ctx.shadowBlur=r*0.7;
+  ellipseArc(ctx, r*1.85, r*1.85*tilt, 0, Math.PI); ctx.stroke();
+  // kleine Leuchtperle auf dem Ring
+  const bx=Math.cos(ringA*0+t*2)*0; // (Perle an fester Ringstelle)
+  ctx.shadowBlur=r*0.6; ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(r*1.85,0,r*0.16,0,7); ctx.fill();
+  ctx.restore();
+
   ctx.restore();
 }
 
@@ -642,6 +737,19 @@ function chaikin(pts,iter){
     pts=out; }
   return pts;
 }
+function perpDist(p,a,b){ const dx=b[0]-a[0],dy=b[1]-a[1], l2=dx*dx+dy*dy;
+  if(l2===0) return Math.hypot(p[0]-a[0],p[1]-a[1]);
+  let t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2; t=clamp(t,0,1);
+  return Math.hypot(p[0]-(a[0]+t*dx), p[1]-(a[1]+t*dy)); }
+function dp(pts,eps){ const n=pts.length; if(n<3) return pts.slice();
+  const keep=new Array(n).fill(false); keep[0]=keep[n-1]=true; const st=[[0,n-1]];
+  while(st.length){ const [s,e]=st.pop(); let md=0,mi=-1;
+    for(let i=s+1;i<e;i++){ const d=perpDist(pts[i],pts[s],pts[e]); if(d>md){md=d;mi=i;} }
+    if(md>eps && mi>0){ keep[mi]=true; st.push([s,mi]); st.push([mi,e]); } }
+  const out=[]; for(let i=0;i<n;i++) if(keep[i]) out.push(pts[i]); return out; }
+// Treppchen/Zacken entfernen (klare Linien), dann weich runden
+function smoothLoop(loop){ const a=loop.concat([loop[0]]); const s=dp(a,0.7); s.pop();
+  return s.length>=3 ? chaikin(s,3) : null; }
 function buildTerritoryPath(){
   if(ownedBounds.maxX<ownedBounds.minX){ terrPath=null; return; }
   const x0=Math.max(0,ownedBounds.minX-1), y0=Math.max(0,ownedBounds.minY-1),
@@ -676,8 +784,8 @@ function buildTerritoryPath(){
     }
   }
   const path=new Path2D();
-  for(let loop of loops){ loop=chaikin(loop,3);
-    path.moveTo(loop[0][0],loop[0][1]); for(let i=1;i<loop.length;i++) path.lineTo(loop[i][0],loop[i][1]); path.closePath(); }
+  for(let loop of loops){ const s=smoothLoop(loop); if(!s) continue;
+    path.moveTo(s[0][0],s[0][1]); for(let i=1;i<s.length;i++) path.lineTo(s[i][0],s[i][1]); path.closePath(); }
   terrPath=path;
 }
 
@@ -879,7 +987,10 @@ function loadGame(){
     stats.paintedCount=0; for(let i=0;i<GRID*GRID;i++) if(owned[i]) stats.paintedCount++;
     if(d.player){ player.x=d.player.x; player.y=d.player.y; cam.x=player.x; cam.y=player.y; }
     applyUpgrades(); stats.ink=stats.inkMax;
-    const img=new Image(); img.onload=()=>{ wctx.drawImage(img,0,0,WPX,WPX); worldImg.data.set(wctx.getImageData(0,0,WPX,WPX).data); };
+    coverage.fill(0); for(let i=0;i<GRID*GRID;i++) if(owned[i]) coverage[i]=1;
+    const img=new Image(); img.onload=()=>{ wctx.drawImage(img,0,0,WPX,WPX); worldImg.data.set(wctx.getImageData(0,0,WPX,WPX).data);
+      dilateWorld(ownedBounds.minX-3,ownedBounds.minY-3,ownedBounds.maxX+3,ownedBounds.maxY+3,2);
+      wctx.putImageData(worldImg,0,0); buildTerritoryPath(); };
     img.src=d.worldPng; buildTerritoryPath(); return true;
   }catch(e){ return false; }
 }
