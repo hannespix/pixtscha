@@ -446,6 +446,20 @@ function render(){
   roundRect(ctx,ox,oy,wpx,wpx,rr); ctx.fillStyle='#0c0e16'; ctx.fill();
   ctx.restore();
 
+  // Dezentes Punkteraster (Sketchpad-Gefühl, Bewegung wird lesbar)
+  if(cam.zoom>6){
+    ctx.save(); roundRect(ctx,ox,oy,wpx,wpx,rr); ctx.clip();
+    const step=8;
+    const sx0=Math.max(0,Math.floor((cam.x-W/2/cam.zoom)/step)*step);
+    const sy0=Math.max(0,Math.floor((cam.y-H/2/cam.zoom)/step)*step);
+    const sx1=Math.min(GRID,cam.x+W/2/cam.zoom), sy1=Math.min(GRID,cam.y+H/2/cam.zoom);
+    ctx.fillStyle='rgba(255,255,255,.06)';
+    for(let gy=sy0;gy<=sy1;gy+=step) for(let gx=sx0;gx<=sx1;gx+=step){
+      const [px,py]=worldToScreen(gx,gy); ctx.beginPath(); ctx.arc(px,py,Math.max(0.8,cam.zoom*0.06),0,7); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Gemaltes Gebiet als glatte Vektor-Silhouette mit eingeklippter Farbe
   if(terrPath){
     ctx.save();
@@ -454,9 +468,13 @@ function render(){
     ctx.save(); ctx.clip(terrPath,'evenodd');
     ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
     ctx.drawImage(world, 0,0, GRID,GRID);
+    // dezente Tiefe: Licht von oben, Schatten unten
+    const sh=ctx.createLinearGradient(0,ownedBounds.minY,0,ownedBounds.maxY+0.001);
+    sh.addColorStop(0,'rgba(255,255,255,.08)'); sh.addColorStop(.45,'rgba(255,255,255,0)'); sh.addColorStop(1,'rgba(0,0,0,.12)');
+    ctx.fillStyle=sh; ctx.fill(terrPath,'evenodd');
     ctx.restore();
-    ctx.lineJoin='round'; ctx.lineWidth=Math.max(0.03, 1.4/cam.zoom);
-    ctx.strokeStyle='rgba(255,255,255,.18)'; ctx.stroke(terrPath);
+    ctx.lineJoin='round'; ctx.lineWidth=Math.max(0.03, 1.5/cam.zoom);
+    ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.stroke(terrPath);
     ctx.restore();
   }
   ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,.08)';
@@ -490,6 +508,23 @@ function render(){
   ctx.globalAlpha=1;
 
   drawPlayer();
+  ctx.restore();
+
+  if(started) drawMinimap();
+}
+function drawMinimap(){
+  const m=Math.min(150, W*0.32), mx=W/2-m/2, my=H-m-16;
+  ctx.save();
+  roundRect(ctx,mx,my,m,m,12); ctx.fillStyle='rgba(8,10,17,.82)'; ctx.fill();
+  ctx.save(); roundRect(ctx,mx,my,m,m,12); ctx.clip();
+  ctx.imageSmoothingEnabled=true; ctx.globalAlpha=0.95; ctx.drawImage(world, mx,my,m,m); ctx.globalAlpha=1;
+  const px=mx+player.x/GRID*m, py=my+player.y/GRID*m;
+  const vw=(W/cam.zoom)/GRID*m, vh=(H/cam.zoom)/GRID*m;
+  ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.lineWidth=1; ctx.strokeRect(px-vw/2,py-vh/2,vw,vh);
+  ctx.fillStyle='#fff'; ctx.shadowColor='#22d3ee'; ctx.shadowBlur=6;
+  ctx.beginPath(); ctx.arc(px,py,2.6,0,7); ctx.fill(); ctx.shadowBlur=0;
+  ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,.1)'; ctx.lineWidth=1; roundRect(ctx,mx,my,m,m,12); ctx.stroke();
   ctx.restore();
 }
 function sparkle(c,r){ c.beginPath();
@@ -572,7 +607,7 @@ function buildTerritoryPath(){
     }
   }
   const path=new Path2D();
-  for(let loop of loops){ loop=chaikin(loop,2);
+  for(let loop of loops){ loop=chaikin(loop,3);
     path.moveTo(loop[0][0],loop[0][1]); for(let i=1;i<loop.length;i++) path.lineTo(loop[i][0],loop[i][1]); path.closePath(); }
   terrPath=path;
 }
