@@ -912,7 +912,7 @@ function buildTerritoryPath(){
 
 /* ---------- Loop ---------- */
 let lastT=performance.now();
-function loop(now){ const dt=Math.min(0.05,(now-lastT)/1000); lastT=now; update(dt); render(); requestAnimationFrame(loop); }
+function loop(now){ const dt=Math.min(0.05,(now-lastT)/1000); lastT=now; if(started) update(dt); else demoUpdate(dt); render(); requestAnimationFrame(loop); }
 
 /* ============================================================
    HUD
@@ -1089,8 +1089,10 @@ function exportPainting(){
   roundRectPath(o, pad,pad,size-2*pad,size-2*pad,24); o.save(); o.clip();
   o.drawImage(world, pad,pad, size-2*pad, size-2*pad); o.restore();
   o.lineWidth=2; o.strokeStyle='rgba(255,255,255,.1)'; roundRectPath(o,pad,pad,size-2*pad,size-2*pad,24); o.stroke();
-  o.fillStyle='rgba(255,255,255,.55)'; o.font='600 22px Inter,system-ui,sans-serif'; o.textAlign='right';
-  o.fillText('PaintDrift', size-pad, size-16);
+  o.textAlign='left'; o.fillStyle='rgba(255,255,255,.85)'; o.font='800 30px Inter,system-ui,sans-serif';
+  o.fillText('PaintDrift', pad+6, size-18);
+  o.textAlign='right'; o.fillStyle='rgba(255,255,255,.5)'; o.font='600 20px Inter,system-ui,sans-serif';
+  o.fillText('Level '+stats.level+'  ·  '+(stats.paintedCount/(GRID*GRID)*100).toFixed(1)+'% bemalt', size-pad-6, size-20);
   out.toBlob(blob=>{ const url=URL.createObjectURL(blob), a=document.createElement('a');
     a.href=url; a.download='paintdrift.png'; a.click(); URL.revokeObjectURL(url); showToast('Gemälde gespeichert'); }, 'image/png');
 }
@@ -1107,7 +1109,7 @@ function packOwned(){ const bytes=new Uint8Array(Math.ceil(GRID*GRID/8));
   let s=''; for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]); return btoa(s); }
 function unpackOwned(b64){ const s=atob(b64);
   for(let i=0;i<GRID*GRID;i++){ owned[i]=(s.charCodeAt(i>>3)>>(i&7))&1; } }
-function saveGame(){ try{
+function saveGame(){ if(!started) return; try{
   localStorage.setItem(SAVE_KEY, JSON.stringify({ v:2, stats, progress, ui, milestones:[...milestonesHit],
     player:{x:player.x,y:player.y}, bounds:ownedBounds, ownedB64:packOwned(), worldPng:world.toDataURL('image/png') }));
 }catch(e){} }
@@ -1132,9 +1134,31 @@ function loadGame(){
 /* ============================================================
    START
    ============================================================ */
+function clearCanvas(){ owned.fill(0); coverage.fill(0);
+  const d=worldImg.data; for(let i=0;i<WPX*WPX;i++){ d[i*4]=CANVAS_BG[0]; d[i*4+1]=CANVAS_BG[1]; d[i*4+2]=CANVAS_BG[2]; d[i*4+3]=255; }
+  ownedBounds.minX=GRID; ownedBounds.minY=GRID; ownedBounds.maxX=0; ownedBounds.maxY=0; terrPath=null; }
+function attractScene(){
+  const cx=GRID/2, cy=GRID/2, cols=[[124,92,255],[34,211,238],[52,211,153],[255,95,109],[255,210,74],[167,139,250]];
+  for(let b=0;b<7;b++){ const bx=cx+rand(-95,95), by=cy+rand(-65,65), r=rand(13,30), c=cols[b%cols.length];
+    for(let y=(by-r)|0;y<=by+r;y++) for(let x=(bx-r)|0;x<=bx+r;x++){ if(x<0||y<0||x>=GRID||y>=GRID) continue;
+      if((x-bx)**2+(y-by)**2<=r*r){ owned[idx(x,y)]=1; const v=0.9+noise2(x*1.5,y*1.5)*0.1; paintCell(x,y,[c[0]*v,c[1]*v,c[2]*v],1); growBounds(x,y); } } }
+  dilateWorld(ownedBounds.minX-3,ownedBounds.minY-3,ownedBounds.maxX+3,ownedBounds.maxY+3,3);
+  wctx.putImageData(worldImg,0,0); buildTerritoryPath();
+}
+const demoCenter={x:GRID/2,y:GRID/2}; let demoT=0;
+function demoUpdate(dt){ demoT+=dt; const a=demoT*0.45;
+  const nx=demoCenter.x+Math.cos(a)*70, ny=demoCenter.y+Math.sin(a*1.3)*44;
+  player.angle=Math.atan2(ny-player.y, nx-player.x); player.x=nx; player.y=ny;
+  cam.x=lerp(cam.x,demoCenter.x,clamp(1.5*dt,0,1)); cam.y=lerp(cam.y,demoCenter.y,clamp(1.5*dt,0,1));
+  for(let i=popups.length-1;i>=0;i--){ popups[i].t+=dt; if(popups[i].t>=popups[i].life) popups.splice(i,1); }
+}
+function dailyBonus(){ try{ const k='paintdrift.daily', today=new Date().toISOString().slice(0,10);
+  if(localStorage.getItem(k)!==today){ localStorage.setItem(k,today); const bn=80+stats.level*12; stats.drops+=bn;
+    setTimeout(()=>showToast('Täglicher Bonus  +'+bn+' Tropfen'),800); } }catch(e){} }
 function startGame(){ closeOverlay('startScreen'); el('hud').classList.remove('hidden');
-  if(!loaded){ seedTerritory(GRID/2|0, GRID/2|0, 6); wctx.putImageData(worldImg,0,0); }
-  buildTerritoryPath(); ensureQuests();
+  if(!loaded){ clearCanvas(); cam.zoom=24; seedTerritory(GRID/2|0, GRID/2|0, 6); wctx.putImageData(worldImg,0,0);
+    player.x=GRID/2; player.y=GRID/2; cam.x=player.x; cam.y=player.y; }
+  buildTerritoryPath(); ensureQuests(); dailyBonus();
   started=true; player.targetAngle=0; player.angle=0; updateHint(); startMusic(); saveGame();
   if(location.search.includes('dev')){ buffs.speed=PU.speed.dur; buffs.ink=PU.ink.dur; buffs.double=PU.double.dur; buffs.shield=true;
     PU_KEYS.forEach((k,i)=>powerups.push({x:player.x-6+i*4, y:player.y-9, k, col:PU[k].col, t:Math.random()*6, life:300}));
@@ -1143,6 +1167,8 @@ function startGame(){ closeOverlay('startScreen'); el('hud').classList.remove('h
 
 let loaded=false;
 setStaticIcons(); applyUpgrades(); loaded=loadGame(); ensureQuests(); updateQuestBadge(false); updateHUD();
+if(loaded){ demoCenter.x=cam.x; demoCenter.y=cam.y; }
+else { attractScene(); cam.zoom=11; cam.x=demoCenter.x; cam.y=demoCenter.y; }
 requestAnimationFrame(loop);
 window.addEventListener('beforeunload', saveGame);
 setInterval(()=>{ if(started) saveGame(); }, 15000);
