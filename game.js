@@ -72,7 +72,9 @@ let trailCells = [];
 let trailPath = [];   // kontinuierlicher Fahrweg (für glatte Live-Spur)
 
 const ownedBounds = { minX: GRID, minY: GRID, maxX: 0, maxY: 0 };
-const cam = { x: GRID/2, y: GRID/2, zoom: 24, shake: 0 };
+const cam = { x: GRID/2, y: GRID/2, zoom: 24, shake: 0, punch: 0 };
+let popups = [];
+function popup(wx,wy,text,color,big){ popups.push({ x:wx, y:wy, text, color, t:0, life:big?1.5:1.1, big:!!big }); }
 const player = { x: GRID/2, y: GRID/2, angle: 0, targetAngle: 0, alive: true, drawing: false };
 
 const stats = {
@@ -402,10 +404,14 @@ function captureArea(){
   showToast('+'+gain+' Tropfen'+(combo.mult>1?'  ·  x'+combo.mult:''));
   sfx.capture(big);
   cam.shake=Math.min(16, 4+newPixels/120);
+  cam.punch=Math.min(0.10, 0.03+newPixels/9000);
   const ccx2=(cMinX+cMaxX)/2, ccy2=(cMinY+cMaxY)/2;
   burst(ccx2,ccy2, base.join(','), Math.min(40,10+newPixels/40));
   splat(ccx2,ccy2, base.join(','), Math.min(26, 8+newPixels/60));
   ring(ccx2,ccy2, base.join(','), Math.min(14, 4+newPixels/200));
+  const praise = newPixels>700?'RIESIG!' : newPixels>300?'Stark!' : combo.mult>1?'Combo!' : null;
+  popup(ccx2,ccy2, '+'+gain, '#ffffff', big);
+  if(praise) popup(ccx2, ccy2-2.4, (combo.mult>1?praise+' x'+combo.mult:praise), '#ffe259', big);
 
   buildTerritoryPath();
   captureFlash=1; stats.captures++;
@@ -566,11 +572,13 @@ function update(dt){
     if(q.g) q.vy+=q.g*dt;
     q.x+=q.vx*dt*8; q.y+=q.vy*dt*8; q.vx*=0.92; q.vy*=q.g?0.99:0.92; q.life-=dt; if(q.life<=0) particles.splice(p,1); }
   for(let r=rings.length-1;r>=0;r--){ rings[r].t+=dt; if(rings[r].t>=rings[r].dur) rings.splice(r,1); }
+  for(let i=popups.length-1;i>=0;i--){ popups[i].t+=dt; if(popups[i].t>=popups[i].life) popups.splice(i,1); }
+  if(cam.punch>0) cam.punch=Math.max(0, cam.punch-dt*0.5);
 
   updateHUD();
 }
 function collectStar(st){ const bonus=Math.round(20+stats.level*6); stats.drops+=bonus; sfx.star();
-  burst(st.x,st.y,'255,226,89',16); showToast('+'+bonus+' Tropfen'); combo.timer=Math.max(combo.timer,2); checkLevel(); questEvent('stars',1); }
+  burst(st.x,st.y,'255,226,89',16); popup(st.x,st.y,'+'+bonus,'#ffe259'); combo.timer=Math.max(combo.timer,2); checkLevel(); questEvent('stars',1); }
 
 /* ============================================================
    RENDER
@@ -601,6 +609,7 @@ function render(){
 
   let shx=0,shy=0; if(cam.shake>0){ shx=rand(-cam.shake,cam.shake); shy=rand(-cam.shake,cam.shake); }
   ctx.translate(shx,shy);
+  if(cam.punch>0){ ctx.translate(W/2,H/2); ctx.scale(1+cam.punch,1+cam.punch); ctx.translate(-W/2,-H/2); }
 
   const [ox,oy]=worldToScreen(0,0); const wpx=GRID*cam.zoom, rr=Math.min(18,wpx*0.02);
   // Leinwand (leerer Untergrund) + Schatten
@@ -697,6 +706,17 @@ function render(){
   ctx.globalAlpha=1;
 
   drawPlayer();
+
+  // Schwebende Score-Popups
+  for(const pp of popups){ const k=pp.t/pp.life, [sx,sy]=worldToScreen(pp.x,pp.y);
+    const pop=k<0.25?(k/0.25):1, sc=(pp.big?1.3:1)*(0.6+0.4*pop);
+    ctx.globalAlpha=1-Math.max(0,(k-0.5)/0.5);
+    ctx.font='800 '+Math.round((pp.big?26:20)*sc)+'px Inter,system-ui,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.fillStyle=pp.color;
+    ctx.strokeText(pp.text, sx, sy-k*46); ctx.fillText(pp.text, sx, sy-k*46); }
+  ctx.globalAlpha=1;
+
   ctx.restore();
 
   if(started) drawMinimap();
@@ -1093,7 +1113,8 @@ function startGame(){ closeOverlay('startScreen'); el('hud').classList.remove('h
   buildTerritoryPath(); ensureQuests();
   started=true; player.targetAngle=0; player.angle=0; updateHint(); saveGame();
   if(location.search.includes('dev')){ buffs.speed=PU.speed.dur; buffs.ink=PU.ink.dur; buffs.double=PU.double.dur; buffs.shield=true;
-    PU_KEYS.forEach((k,i)=>powerups.push({x:player.x-6+i*4, y:player.y-9, k, col:PU[k].col, t:Math.random()*6, life:300})); }
+    PU_KEYS.forEach((k,i)=>powerups.push({x:player.x-6+i*4, y:player.y-9, k, col:PU[k].col, t:Math.random()*6, life:300}));
+    popup(player.x+5, player.y+4, '+248', '#ffffff', true); popup(player.x+5, player.y+2, 'RIESIG! x3', '#ffe259', true); }
 }
 
 let loaded=false;
