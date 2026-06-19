@@ -145,6 +145,12 @@ const BRUSHES = {
              fn:p => hsvToRgb(Math.floor(noise2(p.gx,p.gy)*8)*45, 0.9, 1) },
   gold:    { name:'Gold',      cost:600, desc:'Edles, schimmerndes Metallgold.',
              fn:p => { const sh=noise2(p.gx*0.6,p.gy*0.6); return hsvToRgb(45,lerp(0.9,0.5,sh),lerp(0.7,1,sh)); } },
+  aurora:  { name:'Aurora',    cost:380, desc:'Fließende Polarlicht-Schleier.',
+             fn:p => hsvToRgb(140 + Math.sin(p.gx*0.12)*45 + p.ny*90 + noise2(p.gx*0.2,p.gy*0.2)*20, 0.72, 0.95) },
+  lava:    { name:'Lava',      cost:400, desc:'Glühende Lava mit heißen Adern.',
+             fn:p => { const n=noise2(p.gx*0.45,p.gy*0.45); return n>0.72 ? hsvToRgb(48,1,1) : hsvToRgb(lerp(0,24,n),1,lerp(0.4,0.95,n)); } },
+  marble:  { name:'Marmor',    cost:340, desc:'Heller Marmor mit feinen Adern.',
+             fn:p => { const vein=Math.abs(Math.sin((p.gx+noise2(p.gx*0.25,p.gy*0.25)*9)*0.4)); return mix([244,244,250], p.base, 0.45*(1-vein)); } },
 };
 function brushPreview(id){
   const m={ solid:'linear-gradient(135deg,#7c5cff,#a78bfa)', gradient:'linear-gradient(90deg,#7c5cff,#22d3ee)',
@@ -153,7 +159,10 @@ function brushPreview(id){
     fire:'linear-gradient(0deg,#ffe259,#ff3b30)', ocean:'linear-gradient(0deg,#06b6d4,#1e3a8a)',
     galaxy:'radial-gradient(circle at 60% 35%,#fff 1px,#a855f7 28%,#140a2e 75%)',
     confetti:'conic-gradient(#ff5f6d,#ffb347,#ffe259,#34d399,#22d3ee,#7c5cff,#ff5f6d)',
-    gold:'linear-gradient(135deg,#fff6c0,#d4af37 60%,#8a6d1f)' };
+    gold:'linear-gradient(135deg,#fff6c0,#d4af37 60%,#8a6d1f)',
+    aurora:'linear-gradient(120deg,#34d399,#22d3ee 55%,#7c5cff)',
+    lava:'linear-gradient(0deg,#ffe259,#ff3b30 55%,#5e0f00)',
+    marble:'linear-gradient(120deg,#f7f7fb,#cbd5e1 60%,#8595ad)' };
   return m[id]||'#7c5cff';
 }
 
@@ -262,6 +271,21 @@ const sfx = {
   fail:()=>beep(110,0.25,'sawtooth',0.15),
   click:()=>beep(660,0.05,'square',0.07),
 };
+
+// Generativer Ambient-Pad (dezent, per Mute steuerbar)
+let musicMaster=null;
+function startMusic(){ const ac=audio(); if(!ac||musicMaster) return;
+  musicMaster=ac.createGain(); musicMaster.gain.value=muted?0:0.045; musicMaster.connect(ac.destination);
+  const filt=ac.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=850; filt.Q.value=0.6; filt.connect(musicMaster);
+  const freqs=[110,164.81,220,277.18,329.63];
+  freqs.forEach((f,i)=>{ const o=ac.createOscillator(); o.type='sine'; o.frequency.value=f; o.detune.value=(i-2)*4;
+    const g=ac.createGain(); g.gain.value=0.22/freqs.length; o.connect(g); g.connect(filt);
+    const lfo=ac.createOscillator(); lfo.type='sine'; lfo.frequency.value=0.04+i*0.017;
+    const lg=ac.createGain(); lg.gain.value=0.14/freqs.length; lfo.connect(lg); lg.connect(g.gain); o.start(); lfo.start(); });
+  const flfo=ac.createOscillator(); flfo.type='sine'; flfo.frequency.value=0.025;
+  const fg=ac.createGain(); fg.gain.value=420; flfo.connect(fg); fg.connect(filt.frequency); flfo.start();
+}
+function setMusicMute(){ if(musicMaster) musicMaster.gain.value = muted?0:0.045; }
 
 /* ============================================================
    RESIZE
@@ -950,7 +974,7 @@ el('btnShop').addEventListener('click', ()=>{ sfx.click(); renderShop('brushes')
 el('btnPalette').addEventListener('click', ()=>{ sfx.click(); renderPalette(); openOverlay('paletteScreen'); });
 el('btnHelp').addEventListener('click', ()=>{ sfx.click(); openOverlay('helpScreen'); });
 el('btnShot').addEventListener('click', ()=>{ sfx.click(); exportPainting(); });
-el('btnMute').addEventListener('click', ()=>{ muted=!muted; el('btnMute').innerHTML=muted?ICONS.mute:ICONS.sound; if(!muted) sfx.click(); });
+el('btnMute').addEventListener('click', ()=>{ muted=!muted; el('btnMute').innerHTML=muted?ICONS.mute:ICONS.sound; setMusicMute(); if(!muted) sfx.click(); });
 el('btnZoomIn').addEventListener('click', ()=>zoomAt(W/2,H/2,1.25));
 el('btnZoomOut').addEventListener('click', ()=>zoomAt(W/2,H/2,1/1.25));
 
@@ -1111,7 +1135,7 @@ function loadGame(){
 function startGame(){ closeOverlay('startScreen'); el('hud').classList.remove('hidden');
   if(!loaded){ seedTerritory(GRID/2|0, GRID/2|0, 6); wctx.putImageData(worldImg,0,0); }
   buildTerritoryPath(); ensureQuests();
-  started=true; player.targetAngle=0; player.angle=0; updateHint(); saveGame();
+  started=true; player.targetAngle=0; player.angle=0; updateHint(); startMusic(); saveGame();
   if(location.search.includes('dev')){ buffs.speed=PU.speed.dur; buffs.ink=PU.ink.dur; buffs.double=PU.double.dur; buffs.shield=true;
     PU_KEYS.forEach((k,i)=>powerups.push({x:player.x-6+i*4, y:player.y-9, k, col:PU[k].col, t:Math.random()*6, life:300}));
     popup(player.x+5, player.y+4, '+248', '#ffffff', true); popup(player.x+5, player.y+2, 'RIESIG! x3', '#ffe259', true); }
