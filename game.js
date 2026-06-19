@@ -179,6 +179,12 @@ const SHOP = {
 };
 
 /* ============================================================
+   RINGE (Schockwellen)
+   ============================================================ */
+let rings = [];
+function ring(wx,wy,color,maxR){ rings.push({ x:wx, y:wy, t:0, dur:0.6, max:maxR||6, color }); }
+
+/* ============================================================
    STERNE
    ============================================================ */
 let stars = [];
@@ -320,7 +326,9 @@ function captureArea(){
   const alpha=progress.opacityUnlocked?ui.opacity:1;
   let newPixels=0;
   for(const i of captured){ const x=i%GRID,y=(i/GRID)|0;
-    paintCell(x,y, bfn({gx:x,gy:y,nx:(x-cMinX)/spanX,ny:(y-cMinY)/spanY,base,second}), alpha); newPixels++; }
+    const col=bfn({gx:x,gy:y,nx:(x-cMinX)/spanX,ny:(y-cMinY)/spanY,base,second});
+    const v=0.92+noise2(x*0.9,y*0.9)*0.16; // dezente Pinsel-Textur, nicht tot-flach
+    paintCell(x,y, [col[0]*v,col[1]*v,col[2]*v], alpha); newPixels++; }
   wctx.putImageData(worldImg,0,0, bx0*SS,by0*SS, (bx1-bx0+1)*SS, (by1-by0+1)*SS);
   stats.paintedCount += newPixels;
 
@@ -334,7 +342,9 @@ function captureArea(){
   showToast('+'+gain+' Tropfen'+(combo.mult>1?'  ·  x'+combo.mult:''));
   sfx.capture(big);
   cam.shake=Math.min(16, 4+newPixels/120);
-  burst((cMinX+cMaxX)/2,(cMinY+cMaxY)/2, base.join(','), Math.min(40,10+newPixels/40));
+  const ccx2=(cMinX+cMaxX)/2, ccy2=(cMinY+cMaxY)/2;
+  burst(ccx2,ccy2, base.join(','), Math.min(40,10+newPixels/40));
+  ring(ccx2,ccy2, base.join(','), Math.min(14, 4+newPixels/200));
 
   buildTerritoryPath();
   captureFlash=1; stats.captures++;
@@ -348,7 +358,7 @@ function captureArea(){
 const levelForDrops = d => 1 + Math.floor(Math.sqrt(d/40));
 function checkLevel(){
   const nl=levelForDrops(stats.drops);
-  if(nl>stats.level){ stats.level=nl; sfx.unlock(); showToast('Level '+nl); cam.shake=8; burst(player.x,player.y,'255,226,89',30); }
+  if(nl>stats.level){ stats.level=nl; sfx.unlock(); showToast('Level '+nl); cam.shake=8; burst(player.x,player.y,'255,226,89',30); ring(player.x,player.y,'255,226,89',10); }
 }
 const milestonesHit=new Set();
 function checkMilestones(){
@@ -469,6 +479,7 @@ function update(dt){
 
   for(let p=particles.length-1;p>=0;p--){ const q=particles[p];
     q.x+=q.vx*dt*8; q.y+=q.vy*dt*8; q.vx*=0.92; q.vy*=0.92; q.life-=dt; if(q.life<=0) particles.splice(p,1); }
+  for(let r=rings.length-1;r>=0;r--){ rings[r].t+=dt; if(rings[r].t>=rings[r].dur) rings.splice(r,1); }
 
   updateHUD();
 }
@@ -551,6 +562,13 @@ function render(){
     ctx.save(); ctx.translate(sx,sy); ctx.rotate(st.t*0.4);
     ctx.shadowColor='#ffe27a'; ctx.shadowBlur=18; ctx.fillStyle=`rgba(255,228,120,${tw})`;
     sparkle(ctx,R); ctx.fill(); ctx.restore(); }
+
+  // Ringe (Schockwellen)
+  for(const r of rings){ const k=r.t/r.dur, [sx,sy]=worldToScreen(r.x,r.y);
+    const rad=(0.2+k*1.0)*r.max*cam.zoom; ctx.globalAlpha=(1-k)*0.7;
+    ctx.lineWidth=Math.max(2,(1-k)*6); ctx.strokeStyle='rgba('+r.color+',1)';
+    ctx.beginPath(); ctx.arc(sx,sy,rad,0,7); ctx.stroke(); }
+  ctx.globalAlpha=1;
 
   // Partikel
   for(const q of particles){ const [sx,sy]=worldToScreen(q.x,q.y);
@@ -674,7 +692,8 @@ const el = id => document.getElementById(id);
 function updateHUD(){
   el('drops').textContent=Math.floor(stats.drops);
   el('level').textContent=stats.level;
-  el('inkFill').style.width=(stats.ink/stats.inkMax*100)+'%';
+  const inkF=el('inkFill'); inkF.style.width=(stats.ink/stats.inkMax*100)+'%';
+  inkF.classList.toggle('low', player.drawing && stats.ink/stats.inkMax<0.3);
   el('painted').textContent=(stats.paintedCount/(GRID*GRID)*100).toFixed(1)+'%';
   const cp=el('comboPill');
   if(combo.mult>1 && combo.timer>0){ cp.classList.remove('hidden'); el('comboVal').textContent='x'+combo.mult; }
