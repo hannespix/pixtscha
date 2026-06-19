@@ -67,6 +67,7 @@ const trailGenArr = new Int32Array(GRID * GRID);
 const floodGen = new Int32Array(GRID * GRID);
 let trailGen = 1, floodG = 1;
 let trailCells = [];
+let trailPath = [];   // kontinuierlicher Fahrweg (für glatte Live-Spur)
 
 const ownedBounds = { minX: GRID, minY: GRID, maxX: 0, maxY: 0 };
 const cam = { x: GRID/2, y: GRID/2, zoom: 24, shake: 0 };
@@ -288,13 +289,13 @@ function seedTerritory(cx,cy,r){
     if(x<0||y<0||x>=GRID||y>=GRID) continue;
     if((x-cx)**2+(y-cy)**2 <= r*r){ owned[idx(x,y)]=1; paintCell(x,y, curRGB(), 1); growBounds(x,y); }
   }
-  dilateWorld(cx-r-2,cy-r-2,cx+r+2,cy+r+2,2);
+  dilateWorld(cx-r-3,cy-r-3,cx+r+3,cy+r+3,3);
 }
 
 /* ============================================================
    SPUR & FANGEN
    ============================================================ */
-function resetTrail(){ trailGen++; trailCells.length=0; player.drawing=false; }
+function resetTrail(){ trailGen++; trailCells.length=0; trailPath.length=0; player.drawing=false; }
 function failTrail(){
   if(trailCells.length){ burst(player.x,player.y,'255,90,90',18); cam.shake=10; sfx.fail(); showToast('Spur verloren'); }
   resetTrail(); stats.ink=Math.max(stats.ink, stats.inkMax*0.4);
@@ -349,9 +350,9 @@ function captureArea(){
   let newPixels=0;
   for(const i of captured){ const x=i%GRID,y=(i/GRID)|0;
     const col=bfn({gx:x,gy:y,nx:(x-cMinX)/spanX,ny:(y-cMinY)/spanY,base,second});
-    const v=0.92+noise2(x*0.9,y*0.9)*0.16; // dezente Pinsel-Textur, nicht tot-flach
+    const v=0.95+(noise2(x*1.7,y*1.7)+noise2(x*3.3,y*3.3))*0.045; // feine, ruhige Pinsel-Textur (keine Streifen)
     paintCell(x,y, [col[0]*v,col[1]*v,col[2]*v], alpha); newPixels++; }
-  const dB=3; dilateWorld(bx0-dB,by0-dB,bx1+dB,by1+dB,2);
+  const dB=4; dilateWorld(bx0-dB,by0-dB,bx1+dB,by1+dB,3);
   const fx0=clamp(bx0-dB,0,GRID-1), fy0=clamp(by0-dB,0,GRID-1), fx1=clamp(bx1+dB,0,GRID-1), fy1=clamp(by1+dB,0,GRID-1);
   wctx.putImageData(worldImg,0,0, fx0*SS,fy0*SS, (fx1-fx0+1)*SS, (fy1-fy0+1)*SS);
   stats.paintedCount += newPixels;
@@ -493,6 +494,10 @@ function update(dt){
   const cx=clamp(player.x|0,0,GRID-1), cy=clamp(player.y|0,0,GRID-1), ci=idx(cx,cy);
   if(ci!==lastCellI){ lastCellI=ci; tryStartOrExtendTrail(cx,cy); }
 
+  // kontinuierlichen Fahrweg für die glatte Live-Spur sammeln
+  if(player.drawing){ const n=trailPath.length;
+    if(!n || Math.hypot(player.x-trailPath[n-1][0], player.y-trailPath[n-1][1])>0.35) trailPath.push([player.x,player.y]); }
+
   const onOwn=owned[ci]===1;
   if(onOwn && !player.drawing) stats.ink=Math.min(stats.inkMax, stats.ink+stats.inkRegen*dt);
   else stats.ink=Math.min(stats.inkMax, stats.ink+stats.inkRegen*0.12*dt);
@@ -565,7 +570,7 @@ function render(){
     ctx.drawImage(world, 0,0, GRID,GRID);
     // dezente Tiefe: Licht von oben, Schatten unten
     const sh=ctx.createLinearGradient(0,ownedBounds.minY,0,ownedBounds.maxY+0.001);
-    sh.addColorStop(0,'rgba(255,255,255,.08)'); sh.addColorStop(.45,'rgba(255,255,255,0)'); sh.addColorStop(1,'rgba(0,0,0,.12)');
+    sh.addColorStop(0,'rgba(255,255,255,.06)'); sh.addColorStop(1,'rgba(0,0,0,.11)');
     ctx.fillStyle=sh; ctx.fill(terrPath,'evenodd');
     if(captureFlash>0){ ctx.fillStyle='rgba(255,255,255,'+(captureFlash*0.4)+')'; ctx.fill(terrPath,'evenodd'); }
     ctx.restore();
@@ -576,18 +581,23 @@ function render(){
   ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,.08)';
   roundRect(ctx,ox,oy,wpx,wpx,rr); ctx.stroke();
 
-  // Live-Spur als weicher Pinselstrich
-  if(trailCells.length){
+  // Live-Spur als glatter Pinselstrich aus dem echten Fahrweg (gleiche Optik wie das Gemälde)
+  if(player.drawing && trailPath.length){
     const rgb=curRGB(); const glow=progress.patternsOwned.magnetGlow;
-    ctx.lineJoin='round'; ctx.lineCap='round'; ctx.lineWidth=Math.max(3,cam.zoom*0.78);
-    ctx.strokeStyle=rgba(rgb,0.92);
-    if(glow){ ctx.shadowColor=rgba(rgb,0.95); ctx.shadowBlur=cam.zoom*0.9; }
-    ctx.beginPath();
-    let first=true;
-    for(const i of trailCells){ const x=(i%GRID)+0.5, y=((i/GRID)|0)+0.5; const [sx,sy]=worldToScreen(x,y);
-      if(first){ ctx.moveTo(sx,sy); first=false; } else ctx.lineTo(sx,sy); }
-    const [px,py]=worldToScreen(player.x,player.y); ctx.lineTo(px,py);
-    ctx.stroke(); ctx.shadowBlur=0;
+    const pts=[]; for(const p of trailPath) pts.push(worldToScreen(p[0],p[1]));
+    pts.push(worldToScreen(player.x,player.y));
+    const w=Math.max(3.5, cam.zoom*1.08);  // ~Korridorbreite des Endergebnisses
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    const trace=()=>{ ctx.beginPath();
+      if(pts.length<3){ ctx.moveTo(pts[0][0],pts[0][1]); for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]); }
+      else { ctx.moveTo(pts[0][0],pts[0][1]);
+        for(let i=1;i<pts.length-1;i++){ const xc=(pts[i][0]+pts[i+1][0])/2, yc=(pts[i][1]+pts[i+1][1])/2; ctx.quadraticCurveTo(pts[i][0],pts[i][1],xc,yc); }
+        ctx.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]); } };
+    if(glow){ ctx.shadowColor=rgba(rgb,0.9); ctx.shadowBlur=cam.zoom*0.7; }
+    ctx.lineWidth=w+2; ctx.strokeStyle='rgba(255,255,255,.15)'; trace(); ctx.stroke(); // saubere Kante
+    ctx.shadowBlur=0;
+    ctx.lineWidth=w; ctx.strokeStyle=rgbToHex(...rgb); trace(); ctx.stroke();           // Pinselfarbe
+    ctx.lineWidth=w*0.5; ctx.strokeStyle=rgba(lighten(rgb,0.35),0.5); trace(); ctx.stroke(); // Licht oben
   }
 
   // Sterne
@@ -614,26 +624,6 @@ function render(){
   ctx.restore();
 
   if(started) drawMinimap();
-  if(started && joy.active) drawJoystick();
-}
-function drawJoystick(){
-  const dx=joy.x-joy.ox, dy=joy.y-joy.oy, d=Math.hypot(dx,dy);
-  const ang=Math.atan2(dy,dx), cl=Math.min(d,joy.max);
-  const kx=joy.ox+Math.cos(ang)*cl, ky=joy.oy+Math.sin(ang)*cl;
-  ctx.save();
-  // Basis
-  ctx.beginPath(); ctx.arc(joy.ox,joy.oy,joy.max,0,7);
-  ctx.fillStyle='rgba(255,255,255,.05)'; ctx.fill();
-  ctx.lineWidth=2; ctx.strokeStyle='rgba(255,255,255,.22)'; ctx.stroke();
-  // Richtungslinie
-  if(d>joy.dead){ ctx.beginPath(); ctx.moveTo(joy.ox,joy.oy); ctx.lineTo(kx,ky);
-    ctx.lineWidth=3; ctx.strokeStyle='rgba(124,92,255,.5)'; ctx.stroke(); }
-  // Knopf
-  const g=ctx.createRadialGradient(kx-7,ky-7,2, kx,ky,24);
-  g.addColorStop(0,'#eaf0ff'); g.addColorStop(1,'#7c5cff');
-  ctx.beginPath(); ctx.arc(kx,ky,22,0,7); ctx.fillStyle=g;
-  ctx.shadowColor='rgba(124,92,255,.7)'; ctx.shadowBlur=16; ctx.fill();
-  ctx.restore();
 }
 function drawMinimap(){
   const m=Math.min(150, W*0.32), mx=W/2-m/2, my=H-m-16;
@@ -670,10 +660,10 @@ function drawPlayer(){
   const tilt=0.42;                    // 3D-Neigung des Rings
   ctx.save(); ctx.translate(sx,sy);
 
-  // Glühender Halo
-  const g=ctx.createRadialGradient(0,0,r*0.2, 0,0,r*2.8);
-  g.addColorStop(0,rgba(skin,0.45)); g.addColorStop(1,rgba(skin,0));
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*2.8,0,7); ctx.fill();
+  // Glühender Halo (gestrafft, damit er die Spur nicht überstrahlt)
+  const g=ctx.createRadialGradient(0,0,r*0.2, 0,0,r*2.2);
+  g.addColorStop(0,rgba(skin,0.38)); g.addColorStop(1,rgba(skin,0));
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,r*2.2,0,7); ctx.fill();
 
   // Schub-Komet in Fahrtrichtung (hinter dem Körper)
   ctx.save(); ctx.rotate(player.angle);
@@ -684,11 +674,10 @@ function drawPlayer(){
   ctx.quadraticCurveTo(-r*0.6,r*0.62, -r*3.4,0); ctx.closePath(); ctx.fill();
   ctx.restore();
 
-  // Orbital-Ring – hintere Hälfte (hinter dem Körper)
+  // Orbital-Ring – hintere Hälfte (hinter dem Körper, dunkler für Tiefe)
   ctx.save(); ctx.rotate(ringA);
-  ctx.lineWidth=Math.max(2,r*0.16); ctx.strokeStyle=rgba(lighten(paint,0.25),0.9);
-  ctx.shadowColor=rgba(paint,0.9); ctx.shadowBlur=r*0.7;
-  ellipseArc(ctx, r*1.85, r*1.85*tilt, Math.PI, Math.PI*2); ctx.stroke();
+  ctx.lineWidth=Math.max(2,r*0.15); ctx.strokeStyle=rgba(darken(paint,0.15),0.55);
+  ellipseArc(ctx, r*1.7, r*1.7*tilt, Math.PI, Math.PI*2); ctx.stroke();
   ctx.restore();
 
   // 3D-Kugel
@@ -711,15 +700,11 @@ function drawPlayer(){
   ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); ctx.arc(-r*0.36,-r*0.4,r*0.17,0,7); ctx.fill();
   ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(-r*0.12,-r*0.16,r*0.07,0,7); ctx.fill();
 
-  // Orbital-Ring – vordere Hälfte (vor dem Körper)
+  // Orbital-Ring – vordere Hälfte (vor dem Körper, hell + Glow)
   ctx.save(); ctx.rotate(ringA);
-  ctx.lineWidth=Math.max(2,r*0.16); ctx.strokeStyle=rgba(lighten(paint,0.4),0.95);
-  ctx.shadowColor=rgba(paint,0.9); ctx.shadowBlur=r*0.7;
-  ellipseArc(ctx, r*1.85, r*1.85*tilt, 0, Math.PI); ctx.stroke();
-  // kleine Leuchtperle auf dem Ring
-  const bx=Math.cos(ringA*0+t*2)*0; // (Perle an fester Ringstelle)
-  ctx.shadowBlur=r*0.6; ctx.fillStyle='#fff';
-  ctx.beginPath(); ctx.arc(r*1.85,0,r*0.16,0,7); ctx.fill();
+  ctx.lineWidth=Math.max(2,r*0.16); ctx.strokeStyle=rgba(lighten(paint,0.45),0.95);
+  ctx.shadowColor=rgba(paint,0.9); ctx.shadowBlur=r*0.6;
+  ellipseArc(ctx, r*1.7, r*1.7*tilt, 0, Math.PI); ctx.stroke();
   ctx.restore();
 
   ctx.restore();
@@ -989,7 +974,7 @@ function loadGame(){
     applyUpgrades(); stats.ink=stats.inkMax;
     coverage.fill(0); for(let i=0;i<GRID*GRID;i++) if(owned[i]) coverage[i]=1;
     const img=new Image(); img.onload=()=>{ wctx.drawImage(img,0,0,WPX,WPX); worldImg.data.set(wctx.getImageData(0,0,WPX,WPX).data);
-      dilateWorld(ownedBounds.minX-3,ownedBounds.minY-3,ownedBounds.maxX+3,ownedBounds.maxY+3,2);
+      dilateWorld(ownedBounds.minX-4,ownedBounds.minY-4,ownedBounds.maxX+4,ownedBounds.maxY+4,3);
       wctx.putImageData(worldImg,0,0); buildTerritoryPath(); };
     img.src=d.worldPng; buildTerritoryPath(); return true;
   }catch(e){ return false; }
